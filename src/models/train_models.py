@@ -12,11 +12,11 @@ from sklearn.ensemble import ExtraTreesRegressor, BaggingRegressor, StackingRegr
 from xgboost import XGBRegressor
 from lightgbm import LGBMRegressor
 try:
-    from catboost import CatBoostRegressor
+    from catboost import CatBoostRegressor  # type: ignore
     CATBOOST_AVAILABLE = True
 except ImportError:
     CATBOOST_AVAILABLE = False
-    print("Warning: CatBoost not available. Install with: brew install ninja && pip install catboost")
+    print("Warning: CatBoost not available. Requires Visual Studio C++ Build Tools on Windows.")
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -255,10 +255,13 @@ class ModelTrainer:
         pred, score, std = self.train_single_model(lgbm, X_train, y_train, X_test, 'LightGBM')
         results['LightGBM'] = {'predictions': pred, 'cv_score': score, 'std': std}
         
-        # CatBoost
-        cat = AdvancedGradientBoosting.get_catboost()
-        pred, score, std = self.train_single_model(cat, X_train, y_train, X_test, 'CatBoost')
-        results['CatBoost'] = {'predictions': pred, 'cv_score': score, 'std': std}
+        # CatBoost (if available)
+        if CATBOOST_AVAILABLE:
+            cat = AdvancedGradientBoosting.get_catboost()
+            pred, score, std = self.train_single_model(cat, X_train, y_train, X_test, 'CatBoost')
+            results['CatBoost'] = {'predictions': pred, 'cv_score': score, 'std': std}
+        else:
+            print("Skipping CatBoost (not available)")
         
         return results
     

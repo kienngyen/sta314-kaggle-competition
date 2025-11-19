@@ -16,6 +16,7 @@ class FeatureEngineer:
     
     def __init__(self):
         self.feature_names = []
+        self.kmeans = None  # Store fitted KMeans model
         
     def create_polynomial_features(self, df: pd.DataFrame, 
                                    degree: int = 2, 
@@ -73,13 +74,14 @@ class FeatureEngineer:
         
         return new_df
     
-    def create_cluster_features(self, df: pd.DataFrame, n_clusters: int = 5) -> pd.DataFrame:
+    def create_cluster_features(self, df: pd.DataFrame, n_clusters: int = 5, is_training: bool = True) -> pd.DataFrame:
         """
         Create cluster-based features using KMeans
         
         Args:
             df: Input dataframe
             n_clusters: Number of clusters
+            is_training: Whether this is training data (fit) or test data (transform)
         
         Returns:
             DataFrame with cluster features
@@ -87,14 +89,25 @@ class FeatureEngineer:
         from sklearn.cluster import KMeans
         
         new_df = df.copy()
-        feature_cols = [col for col in df.columns if col not in ['y', 'id']]
         
-        # KMeans clustering
-        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-        new_df['cluster'] = kmeans.fit_predict(df[feature_cols])
+        # Ensure all column names are strings first
+        new_df.columns = new_df.columns.astype(str)
+        
+        # Now get feature columns
+        feature_cols = [col for col in new_df.columns if col not in ['y', 'id']]
+        
+        if is_training:
+            # KMeans clustering - fit on training data
+            self.kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+            new_df['cluster'] = self.kmeans.fit_predict(new_df[feature_cols])
+        else:
+            # Use fitted KMeans to predict clusters on test data
+            if self.kmeans is None:
+                raise ValueError("KMeans model has not been fitted yet. Call with is_training=True first.")
+            new_df['cluster'] = self.kmeans.predict(new_df[feature_cols])
         
         # Distance to cluster centers
-        distances = kmeans.transform(df[feature_cols])
+        distances = self.kmeans.transform(new_df[feature_cols])
         for i in range(n_clusters):
             new_df[f'dist_to_cluster_{i}'] = distances[:, i]
         
@@ -118,7 +131,7 @@ class FeatureEngineer:
         # Apply feature engineering
         df = self.create_polynomial_features(df, top_k=10)
         df = self.create_statistical_features(df)
-        df = self.create_cluster_features(df, n_clusters=5)
+        df = self.create_cluster_features(df, n_clusters=5, is_training=True)
         
         # Store feature names
         self.feature_names = df.columns.tolist()
@@ -141,7 +154,7 @@ class FeatureEngineer:
         # Apply same transformations
         df = self.create_polynomial_features(df, top_k=10)
         df = self.create_statistical_features(df)
-        df = self.create_cluster_features(df, n_clusters=5)
+        df = self.create_cluster_features(df, n_clusters=5, is_training=False)
         
         return df.values
 

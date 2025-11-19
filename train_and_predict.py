@@ -35,8 +35,14 @@ def main():
     # Separate features and target
     X = train_df.drop('y', axis=1).values
     y = train_df['y'].values
-    X_test = test_df.values
-    test_ids = sample_submission['id'].values
+    
+    # Drop 'id' column from test data if it exists
+    if 'id' in test_df.columns:
+        test_ids = np.array(test_df['id'].values)
+        X_test = test_df.drop('id', axis=1).values
+    else:
+        test_ids = np.array(sample_submission['id'].values)
+        X_test = test_df.values
     
     # ============================================================
     # 2. FEATURE ENGINEERING
@@ -49,6 +55,12 @@ def main():
     # Apply feature engineering
     X_engineered = feature_engineer.fit_transform(X)
     X_test_engineered = feature_engineer.transform(X_test)
+    
+    # Convert to DataFrame if they are numpy arrays
+    if isinstance(X_engineered, np.ndarray):
+        X_engineered = pd.DataFrame(X_engineered)
+    if isinstance(X_test_engineered, np.ndarray):
+        X_test_engineered = pd.DataFrame(X_test_engineered)
     
     print(f"  Original features: {X.shape[1]}")
     print(f"  Engineered features: {X_engineered.shape[1]}")
@@ -83,7 +95,7 @@ def main():
             n_components=params['pca_components']
         )
         
-        X_processed = preprocessor.fit_transform(X_engineered, y)
+        X_processed = preprocessor.fit_transform(X_engineered, pd.Series(y))
         X_test_processed = preprocessor.transform(X_test_engineered)
         
         preprocessed_data[strategy_name] = {
@@ -108,9 +120,13 @@ def main():
     # Train traditional ML models
     print("\n  Training Traditional ML Models...")
     traditional_models = TraditionalMLModels()
-    all_traditional = traditional_models.get_all_models()
     
-    for name, model in all_traditional.items():
+    # Train linear models
+    for name, model in traditional_models.get_linear_models().items():
+        trainer.train_single_model(model, X_train, y, X_test_final, name)
+    
+    # Train tree models
+    for name, model in traditional_models.get_tree_models().items():
         trainer.train_single_model(model, X_train, y, X_test_final, name)
     
     # Train gradient boosting models
@@ -123,34 +139,57 @@ def main():
     lgb_model = boosting_models.get_lightgbm()
     trainer.train_single_model(lgb_model, X_train, y, X_test_final, 'LightGBM')
     
-    cat_model = boosting_models.get_catboost()
-    trainer.train_single_model(cat_model, X_train, y, X_test_final, 'CatBoost')
+    # Train CatBoost if available
+    try:
+        cat_model = boosting_models.get_catboost()
+        trainer.train_single_model(cat_model, X_train, y, X_test_final, 'CatBoost')
+    except ImportError:
+        print("  Skipping CatBoost (not available)")
     
     # ============================================================
     # 5. TRAIN DEEP LEARNING MODELS
     # ============================================================
     print("\n[5/6] Training deep learning models...")
     
-    dl_trainer = DeepLearningTrainer(n_folds=5)
-    dl_results = dl_trainer.train_all_dl_models(
-        X_train, y, X_test_final,
-        epochs=100
-    )
-    
-    # Add DL results to trainer
-    for model_name, result in dl_results.items():
-        trainer.models[model_name] = None  # DL models not stored
-        trainer.predictions[model_name] = result['predictions']
-        trainer.cv_scores[model_name] = result['cv_score']
-        trainer.cv_stds[model_name] = result['std']
+    try:
+        dl_trainer = DeepLearningTrainer(n_folds=5)
+        dl_results = dl_trainer.train_all_dl_models(
+            X_train, y, X_test_final,
+            epochs=100
+        )
+        
+        # Add DL results to trainer
+        for model_name, result in dl_results.items():
+            trainer.models[model_name] = None  # DL models not stored
+            trainer.predictions[model_name] = result['predictions']
+            trainer.scores[model_name] = {'mean': result['cv_score'], 'std': result['std']}
+    except ImportError as e:
+        print(f"  Skipping deep learning models: {e}")
+        dl_results = {}
     
     # ============================================================
     # 6. CREATE ENSEMBLES AND SAVE PREDICTIONS
     # ============================================================
     print("\n[6/6] Creating ensembles and saving predictions...")
     
+    # Create directories if they don't exist
+    import os
+    os.makedirs('models', exist_ok=True)
+    os.makedirs('submissions', exist_ok=True)
+    
     # Get model summary
-    summary_df = trainer.get_summary()
+    trainer.get_summary()  # This prints the summary
+    
+    # Create DataFrame for saving and further processing
+    summary_data = []
+    for name, score in trainer.scores.items():
+        summary_data.append({
+            'Model': name,
+            'CV_RMSE_Mean': score['mean'],
+            'CV_RMSE_Std': score['std']
+        })
+    summary_df = pd.DataFrame(summary_data).sort_values('CV_RMSE_Mean')
+    
     print("\n" + "="*80)
     print("MODEL PERFORMANCE SUMMARY (sorted by CV RMSE)")
     print("="*80)
@@ -184,31 +223,31 @@ def main():
     # Save individual best models
     for model_name in best_models:
         if model_name in trainer.predictions:
-            predictions = trainer.predictions[model_name]
+            predictions = np.array(trainer.predictions[model_name])
             filename = f"submission_{model_name}.csv"
-            save_submission(test_ids, predictions, filename)
+            save_submission(predictions, test_ids, filename)
             print(f"  ✓ {filename}")
     
     # Save ensemble predictions
     for ensemble_name, predictions in ensemble_predictions.items():
         filename = f"submission_ensemble_{ensemble_name}.csv"
-        save_submission(test_ids, predictions, filename)
+        save_submission(np.array(predictions), test_ids, filename)
         print(f"  ✓ {filename}")
     
     # Create final best submission (ensemble of top 5)
-    final_predictions = ensemble_predictions['top5']
-    save_submission(test_ids, final_predictions, 'submission_final_best.csv')
+    final_predictions = np.array(ensemble_predictions['top5'])
+    save_submission(final_predictions, test_ids, 'submission_final_best.csv')
     print(f"\n  🎯 BEST SUBMISSION: submission_final_best.csv (Ensemble Top 5)")
     
     # Print best models
     print("\n" + "="*80)
     print("TOP 5 MODELS:")
     print("="*80)
-    for i, row in best_models.head().iterrows():
-        model_name = summary_df.loc[i, 'Model']
-        cv_score = summary_df.loc[i, 'CV_RMSE_Mean']
-        cv_std = summary_df.loc[i, 'CV_RMSE_Std']
-        print(f"  {i+1}. {model_name:20s} - RMSE: {cv_score:.6f} (+/- {cv_std:.6f})")
+    for rank, (_, row) in enumerate(summary_df.head(5).iterrows(), 1):
+        model_name = row['Model']
+        cv_score = row['CV_RMSE_Mean']
+        cv_std = row['CV_RMSE_Std']
+        print(f"  {rank}. {model_name:20s} - RMSE: {cv_score:.6f} (+/- {cv_std:.6f})")
     
     print("\n" + "="*80)
     print("PIPELINE COMPLETED SUCCESSFULLY!")

@@ -42,6 +42,9 @@ class DeepLearningModels:
         Returns:
             Keras model
         """
+        if not TENSORFLOW_AVAILABLE:
+            raise ImportError("TensorFlow is not installed. Install with: pip install tensorflow")
+            
         model = keras.Sequential()
         model.add(layers.Input(shape=(input_dim,)))
         
