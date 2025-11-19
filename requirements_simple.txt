@@ -1,0 +1,10 @@
+# Core packages for quick start (Python 3.14 compatible)
+numpy>=2.0.0
+pandas>=2.2.0
+scikit-learn>=1.5.0
+xgboost>=2.1.0
+lightgbm>=4.5.0
+# catboost>=1.2.7  # Requires Ninja build tool - install separately if needed
+matplotlib>=3.9.0
+seaborn>=0.13.0
+scipy>=1.14.0
