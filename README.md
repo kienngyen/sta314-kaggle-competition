@@ -1,6 +1,7 @@
 # STA314 Kaggle Competition: The Journey
 
 This repository contains the code and strategies used to achieve top performance in the STA314 Kaggle Competition.
+Link to the Kaggle Competition: https://www.kaggle.com/competitions/sta-314-2025-competition/overview
 
 ## Project Structure
 
