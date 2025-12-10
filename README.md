@@ -1,4 +1,4 @@
-# STA314 Kaggle Competition: The Journey to Victory
+# STA314 Kaggle Competition: The Journey
 
 This repository contains the code and strategies used to achieve top performance in the STA314 Kaggle Competition.
 
